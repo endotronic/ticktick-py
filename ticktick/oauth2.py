@@ -52,7 +52,8 @@ class OAuth2:
                  session=None,
                  env_key: str = None,
                  cache_path: str = '.token-oauth',
-                 check_cache: bool = True
+                 check_cache: bool = True,
+                 get_token_now: bool = True,
                  ):
         """
         Initialize the object.
@@ -132,10 +133,15 @@ class OAuth2:
         # Set the access token
         self.access_token_info = None
 
-        # get access token
-        self.get_access_token(check_cache=check_cache, check_env=env_key)
+        # Save configuration
+        self.check_cache = check_cache
+        self.env_key = env_key
 
-    def _get_auth_url(self):
+        if get_token_now:
+            # get access token
+            self.get_access_token()
+
+    def get_auth_url(self):
         """
         Returns the url for authentication
         """
@@ -161,18 +167,19 @@ class OAuth2:
                  "authorization you will be redirected to the redirect url that you provided with extra parameters "
                  "provided in the url. Paste the url that you "
                  "were redirected to into the console")
-        url = self._get_auth_url()
+        url = self.get_auth_url()
         webbrowser.open(url)
 
-    def _get_redirected_url(self):
+    def _get_redirected_url(self, provided_url: str = None):
         """
         Prompts the user for the redirected url to parse the token and state
         """
-        prompt = "Enter the URL you were redirected to: "
-        url = self._get_user_input(prompt)
+        if not provided_url:
+            prompt = "Enter the URL you were redirected to: "
+            url = self._get_user_input(prompt)
 
         # get the parsed parameters from the url
-        self._code, self._state = self._get_auth_response_parameters(url)
+        self._code, self._state = self._get_auth_response_parameters(provided_url or url)
 
     @staticmethod
     def _get_user_input(prompt: str = ''):
@@ -199,7 +206,7 @@ class OAuth2:
         # return the parameters
         return isolated["code"], isolated["state"]
 
-    def _request_access_token(self):
+    def _request_access_token(self, use_browser: bool = True, redirected_url: str = None):
         """
         Makes the POST request to get the token and returns the token info dictionary
 
@@ -207,9 +214,13 @@ class OAuth2:
         :return:
         """
 
-        # Get the manual authentication from the user, and prompt for the redirected url
-        self._open_auth_url_in_browser()
-        self._get_redirected_url()
+        if use_browser:
+            # Get the manual authentication from the user, and prompt for the redirected url
+            self._open_auth_url_in_browser()
+            self._get_redirected_url()
+        else:
+            assert redirected_url, "Need provided redirected_url if not using browser"
+            self._get_redirected_url(redirected_url)
 
         # create the payload
         payload = {
@@ -253,7 +264,21 @@ class OAuth2:
         except ValueError:
             return response.text
 
-    def get_access_token(self, check_cache: bool = True, check_env: str = None):
+    def get_access_token(self, use_browser: bool = True, redirected_url: str = None):
+        return self._get_access_token(
+            check_cache=self.check_cache, 
+            check_env=self.env_key,
+            use_browser=use_browser,
+            redirected_url=redirected_url,
+        )
+
+    def _get_access_token(
+        self, 
+        check_cache: bool = True, 
+        check_env: str = None, 
+        use_browser: bool = True,
+        redirected_url: str = None,
+    ):
         """
         Retrieves the authorization token from cache or makes a new request for it.
 
@@ -308,7 +333,7 @@ class OAuth2:
                 return token_info["access_token"]
 
         # access token is not stored anywhere, request a new token
-        token_info = self._request_access_token()
+        token_info = self._request_access_token(use_browser=use_browser, redirected_url=redirected_url)
         self.access_token_info = token_info
         return token_info["access_token"]
 
